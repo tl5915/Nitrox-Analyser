@@ -5,8 +5,10 @@ Material required:
 - 50mL Syringe
   - cut the tip off and drill to 16mm, trim to approriate length (around 63mm)
   - keep the silicone plug on the plunger, cut holes for USB-C as end plug, drill hole for lanyard
-- M16x1 Nut (can be 3D printed)
-- Flow Limiter (can be 3D printed)
+- M16x1 Nut (can be 3D printed: https://www.thingiverse.com/thing:3428400)
+- Flow Limiter (can be 3D printed: https://www.printables.com/model/52405-nitrox-analyzer/files)
+  - flow_restrictor_1.stl & flow_restrictor_10mm.stl
+  - measured the inner diameter of oxygen cell to select appropriate flow_restrictor file
 - Oxygen Cell (any 3-Pin Molex type, e.g. Vandagraph R-22VAN)
 - Seeed Xiao ESP32-C3
 - LM358P Operational Amplifier
