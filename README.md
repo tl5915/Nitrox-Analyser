@@ -20,6 +20,7 @@ Material required:
 - JST-XH (2.54mm) 3-Pin Female Connector 
   - cut the locking arrows off to fit Molex header on oxygen cell
 
+
 Circuit connection:
 - LM358P pin 8 (Vcc) connects to Xiao 3V3 pin
 - LM358P pin 4 (Gnd) connects to Xiao Gnd pin and Oxygen Cell pin 1 (-)
@@ -32,6 +33,7 @@ Circuit connection:
 - 100 ohm resistor connects between Xiao pin D7 and LED long leg (+)
 - LED short leg (-) connects to Xiao pin D6
 - Connect the antenna for Xiao, antenna can be sticked on the back of circuit board
+
 
 UI instruction:
 - Power with USB-C cable
