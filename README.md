@@ -2,50 +2,51 @@
 Nitrox Analyser (Divesoft DNA clone)
 
 Material required:
-50mL Syringe;
-  (cut the tip off and drill to 16mm, trim to approriate length, around 63mm)
-  (keep the silicone plug on the plunger, cut holes for USB-C as end plug, drill hole for lanyard)
-M16x1 Nut (can be 3D printed)
-Flow Limiter (can be 3D printed)
-Oxygen Cell (any 3-Pin Molex type, e.g. Vandagraph R-22VAN)
-Seeed Xiao ESP32-C3
-LM358P Operational Amplifier
-3mm 20mA Green LED
-100/3.3k/47k ohm Resistors
-0.1uF Ceramic Capacitors
-Prototype Board (cut to 7x8)
-8-Pin Female Headers
-JST-XH (2.54mm) 3-Pin Female Connector 
-  (cut the locking arrows off to fit Molex header on oxygen cell)
+- 50mL Syringe
+  - cut the tip off and drill to 16mm, trim to approriate length (around 63mm)
+  - keep the silicone plug on the plunger, cut holes for USB-C as end plug, drill hole for lanyard
+- M16x1 Nut (can be 3D printed)
+- Flow Limiter (can be 3D printed)
+- Oxygen Cell (any 3-Pin Molex type, e.g. Vandagraph R-22VAN)
+- Seeed Xiao ESP32-C3
+- LM358P Operational Amplifier
+- 3mm 20mA Green LED
+- 100/3.3k/47k ohm Resistors
+- 0.1uF Ceramic Capacitors
+- Prototype Board (cut to 7x8)
+- 8-Pin Female Headers
+- JST-XH (2.54mm) 3-Pin Female Connector 
+  - cut the locking arrows off to fit Molex header on oxygen cell
 
 Circuit connection:
-LM358P pin 8 (Vcc) connects to Xiao 3V3 pin
-LM358P pin 4 (Gnd) connects to Xiao Gnd pin and Oxygen Cell pin 1 (-)
-LM358P pin 3 (IN1+) connects to Oxygen Cell pin 3 (+)
-LM358P pin 1 (OUT1) connects to Xiao pin A2
-3.3k ohm resistor connects between LM358P pin 2 (IN1-) and pin 4 (Gnd)
-47k ohm resistor connects between LM358P pin 1 (OUT1) and pin 2 (IN2-)
-0.1uF capacitor connects between LM358P pin 8 and 3
-0.1uF capacitor connects between Xiao pin A2 and Gnd pin
-100 ohm resistor connects between Xiao pin D7 and LED long leg (+)
-LED short leg (-) connects to Xiao pin D6
-Connect the antenna for Xiao, antenna can be sticked on the back of circuit board
+- LM358P pin 8 (Vcc) connects to Xiao 3V3 pin
+- LM358P pin 4 (Gnd) connects to Xiao Gnd pin and Oxygen Cell pin 1 (-)
+- LM358P pin 3 (IN1+) connects to Oxygen Cell pin 3 (+)
+- LM358P pin 1 (OUT1) connects to Xiao pin A2
+- 3.3k ohm resistor connects between LM358P pin 2 (IN1-) and pin 4 (Gnd)
+- 47k ohm resistor connects between LM358P pin 1 (OUT1) and pin 2 (IN2-)
+- 0.1uF capacitor connects between LM358P pin 8 and 3
+- 0.1uF capacitor connects between Xiao pin A2 and Gnd pin
+- 100 ohm resistor connects between Xiao pin D7 and LED long leg (+)
+- LED short leg (-) connects to Xiao pin D6
+- Connect the antenna for Xiao, antenna can be sticked on the back of circuit board
 
 UI instruction:
-Powered by USB-C cable
-Connects to 'Nitrox Analyser' WiFi, password: 12345678
-Browser open URL: 192.168.4.1/upload_page
-  upload 'icon.png' file
-iPhone connects to the WiFi, in Safari open URL: 192.168.4.1
-  bottom middle up arrow button: Add to Home Screen
-Click 'Cal. Low' to calibrate in air
-Click 'Cal. High' to calibrate in oxygen/rich nitrox
-Cal. High valid if higher than Cal. High, 2-point calibration will be available
-Click 'Calibration %' to change gas for Cal. High: default 99% oxygen, can be set to lower percentage
-Click 'Reset' to reset to default calibration values
-LED will blink number represent the oxygen percentage to the nearest 10%
-  i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks etc.
-  LED stays off if O2 < 5%, LED stays on if O2 > 95%
+- Power with USB-C cable
+- Connects to 'Nitrox Analyser' WiFi, password: 12345678
+- Browser open URL: 192.168.4.1/upload_page
+  - upload 'icon.png' file
+- iPhone connects to the WiFi, in Safari open URL: 192.168.4.1
+  - bottom middle up arrow button: Add to Home Screen
+
+- Click 'Cal. Low' to calibrate in air
+- Click 'Cal. High' to calibrate in oxygen/rich nitrox
+- Cal. High valid if higher than Cal. High, 2-point calibration will be available
+- Click 'Calibration %' to change gas used for 'Cal. High': default 99%, can be set lower
+- Click 'Reset' to reset to default calibration values
+- LED will blink number represent the oxygen percentage to the nearest 10%
+  - i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks, etc.
+  - LED stays off if O2 < 5%, LED stays on if O2 > 95%
 
 
 ![XIAO](https://github.com/user-attachments/assets/92628dc2-1203-4df5-9cec-ce2de9f65083)
