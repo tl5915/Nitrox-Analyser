@@ -43,6 +43,9 @@ Click 'Cal. High' to calibrate in oxygen/rich nitrox
 Cal. High valid if higher than Cal. High, 2-point calibration will be available
 Click 'Calibration %' to change gas for Cal. High: default 99% oxygen, can be set to lower percentage
 Click 'Reset' to reset to default calibration values
+LED will blink number represent the oxygen percentage to the nearest 10%
+  i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks etc.
+  LED stays off if O2 < 5%, LED stays on if O2 > 95%
 
 
 ![XIAO](https://github.com/user-attachments/assets/92628dc2-1203-4df5-9cec-ce2de9f65083)
