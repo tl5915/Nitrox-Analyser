@@ -8,7 +8,8 @@
 #include <SimpleKalmanFilter.h>
 
 File fsUploadFile;
-SimpleKalmanFilter oxygenKalman(0.02, 1.0, 0.0005);  // R: measurement error, P: estimated error, Q: process noise
+WebServer server(80);  // Web server on port 80
+SimpleKalmanFilter oxygenKalman(0.02, 1.0, 0.001);  // R: measurement error, P: estimated error, Q: process noise
 
 // Pin Definition
 const uint8_t oxygenPin = A2;  // GPIO 4
@@ -17,13 +18,21 @@ const uint8_t ledPin = D7;     // GPIO 20
 
 // Calibration
 const uint8_t defaultOxygenCalPercentage = 99;  // Oxygen calibration percentage
-const float defaultOxygenCalVoltage = 10.0;     // Oxygen voltage in air
+const float defaultOxygenCalVoltage = 9.0;      // Oxygen voltage in air
 const float defaultPureOxygenVoltage = 0.0;     // Oxygen voltage in oxygen
+const float defaultpgaGain = 13.8f;             // Measured PGA gain 
 bool isTwoPointCalibrated = false;
 bool forceOnePointMode = false;
 uint8_t OxygenCalPercentage = defaultOxygenCalPercentage; 
 float oxygencalVoltage = defaultOxygenCalVoltage;
 float pureoxygenVoltage = defaultPureOxygenVoltage;
+float pgaGain = defaultpgaGain;
+
+// EEPROM Addresses
+const int EEPROM_SIZE = 128;
+const int ADDR_INDEX = 0;
+const int ADDR_CALIB_START = 4;
+const int ADDR_GAIN = 64;
 
 // Sampling
 const uint8_t samplingRateHz = 240;  // Sampling rate 240 Hz
@@ -56,7 +65,6 @@ unsigned long groupPauseTime = 0;
 // WiFi Settings
 const char *ssid = "Nitrox_Analyser";  // WiFi SSID
 const char *password = "12345678";     // WiFi password
-WebServer server(80);                  // Web server on port 80
 
 // 21% Oxygen Calibration
 void airOxygenCalibration() {
@@ -72,24 +80,79 @@ void airOxygenCalibration() {
 }
 
 // 100% Oxygen Calibration
-void pureOxygenCalibration() {
-  pureoxygenVoltage = filteredOxygenVoltage;
-  if (pureoxygenVoltage > oxygencalVoltage) {
-    isTwoPointCalibrated = true;
+bool pureOxygenCalibration() {
+  float newPureVoltage = filteredOxygenVoltage;
+  if (newPureVoltage <= oxygencalVoltage) {
+    return false;
+  }
+  pureoxygenVoltage = newPureVoltage;
+  isTwoPointCalibrated = true;
+  int index = EEPROM.read(0);
+  if (index < 0 || index > 4) index = 0;
+  int baseAddr = 4 + index * 12;
+  EEPROM.put(baseAddr, OxygenCalPercentage);
+  EEPROM.put(baseAddr + 4, oxygencalVoltage);
+  EEPROM.put(baseAddr + 8, pureoxygenVoltage);
+  EEPROM.write(0, (index + 1) % 5);
+  EEPROM.commit();
+  return true;
+}
+
+// Calibration Percentage
+void handleCalibrationPercentage() {
+  if (server.hasArg("OxygenCalPercentage")) {
+    OxygenCalPercentage = server.arg("OxygenCalPercentage").toInt();
     int index = EEPROM.read(0);
     if (index < 0 || index > 4) index = 0;
     int baseAddr = 4 + index * 12;
     EEPROM.put(baseAddr, OxygenCalPercentage);
     EEPROM.put(baseAddr + 4, oxygencalVoltage);
     EEPROM.put(baseAddr + 8, pureoxygenVoltage);
-    EEPROM.write(0, (index + 1) % 5);  // update index
+    EEPROM.write(0, (index + 1) % 5);
     EEPROM.commit();
+    String response = "<html><body><h1>Saved!</h1><p>Device is restarting...</p></body></html>";
+    server.send(200, "text/html", response);
+    esp_restart();
+  } else {
+    server.send(400, "text/html", "<html><body><h1>Error:</h1><p>Missing parameter.</p></body></html>");
   }
+}
+
+// PGA Gain
+void handleSaveGain() {
+  if (!server.hasArg("gain")) {
+    server.send(400, "text/html", "<h1>Error: Missing gain value</h1>");
+    return;
+  }
+  float g = server.arg("gain").toFloat();
+  if (g < 0.1f || g > 99.9f) {
+    server.send(400, "text/html", "<h1>Error: Gain out of range</h1>");
+    return;
+  }
+  pgaGain = g;
+  EEPROM.put(ADDR_GAIN, pgaGain);
+  EEPROM.commit();
+  server.send(200, "text/html", "<html><body><h1>Saved!</h1><p>Rebooting...</p></body></html>");
+  esp_restart();
+}
+
+// Reset Calibration
+void handleResetCalibration() {
+  int index = EEPROM.read(0);
+  if (index < 0 || index > 4) index = 0;
+  int baseAddr = 4 + index * 12;
+  EEPROM.put(baseAddr, defaultOxygenCalPercentage);
+  EEPROM.put(baseAddr + 4, defaultOxygenCalVoltage);
+  EEPROM.put(baseAddr + 8, defaultPureOxygenVoltage);
+  EEPROM.put(ADDR_GAIN, defaultpgaGain);
+  EEPROM.write(0, (index + 1) % 5);
+  EEPROM.commit();
+  esp_restart();
 }
 
 // Read Oxygen Voltage
 float getOxygenVoltage() {
-  return analogReadMilliVolts(oxygenPin) / 12.8;  // Gain 12.8
+  return analogReadMilliVolts(oxygenPin) / pgaGain;
 }
 
 // Oxygen Percentage Calculation
@@ -165,34 +228,29 @@ const char *htmlPage = R"rawliteral(
 
     <!-- Calibration Status -->
       <div id="calibrationStatus" style="margin-top: 20px; font-size: 18px; color: green;"></div>
-      <div id="calibrationMode" style="font-size: 18px; margin-top: 10px;">
-        <span id="calibrationType">Calibration: unknown</span>
-      </div>
-      <div id="bypassButtonContainer" style="margin-top: 10px; display: none;">
-        <button id="toggleCalibrationBtn" style="font-size: 18px; padding: 4px 10px;" onclick="toggleCalibrationMode()">Calibration Mode</button>
-      </div>
-
-    <!-- Calibration Percentage -->
-      <div style="margin: 10px 0; text-align: center;">
-        <button style="font-size: 18px; padding: 4px 10px;" onclick="window.location.href='/calibration_percentage'">
-          Calibration %
+      <div id="bypassButtonContainer" style="margin-top: 10px;">
+        <button id="toggleCalibrationBtn" style="font-size: 18px; padding: 4px 10px;" onclick="toggleCalibrationMode()">
+          1-Point Calibration
         </button>
       </div>
 
-    <!-- Reset Calibration -->
-      <div style="margin: 10px 0; text-align: center;">
-        <button style="font-size: 18px; padding: 4px 10px;" onclick="resetCalibration()">
-          Reset
-        </button>  
+     <!-- Settings -->
+      <div style="margin-top: 30px; text-align: center;">
+        <button style="font-size: 18px; padding: 4px 10px;" onclick="window.location.href='/settings'">
+          Setting
+        </button>
       </div>
 
     <!-- System -->
-    <div style="font-size: 16px; margin-top: 10px;">
+    <div style="font-size: 16px; margin-top: 20px;">
       Oversampling: <span id="count">0</span>
+    </div>
+    <div style="font-size: 16px; margin-top: 5px;">
+      Gain: <span id="gain">0.0</span>
     </div>
 
     <!-- Refresh Button -->
-    <div style="margin-top: 10px; text-align: center;">
+    <div style="margin-top: 20px; text-align: center;">
       <button style="font-size: 20px; padding: 4px 10px;" onclick="location.reload();">
         Refresh
       </button>
@@ -201,35 +259,38 @@ const char *htmlPage = R"rawliteral(
 
   <script>
     function calibrate(type) {
-      let url = type === 'air' ? '/calibrate_air' : '/calibrate_pure';
+      const url = type === 'air' ? '/calibrate_air' : '/calibrate_pure';
       fetch(url)
-        .then(response => response.text())
-        .then(data => {
-          console.log("Calibration response:", data);
-          document.getElementById("calibrationStatus").textContent =
-            type === 'air' ? "Low calibration complete!" : "High calibration complete!";
-        })
+        .then(response => response.text().then(data => {
+          if (!response.ok) {
+            throw new Error(data);
+          }
+          document.getElementById("calibrationStatus").style.color = "green";
+          document.getElementById("calibrationStatus").textContent = 
+            type === 'air' ? "low point calibration completed" : "high point calibration completed";
+        }))
         .catch(error => {
           console.error("Calibration error:", error);
-          document.getElementById("calibrationStatus").textContent = "Calibration failed.";
+          document.getElementById("calibrationStatus").style.color = "red";
+          document.getElementById("calibrationStatus").textContent =
+            type === 'pure' ? "failed: voltage too low" : "Error";
         });
     }
 
     function toggleCalibrationMode() {
+      const btn = document.getElementById("toggleCalibrationBtn");
+      const isTwoPointAvailable = btn.dataset.isTwoPointAvailable === "true";
+      const currentMode = btn.dataset.currentMode;
+      if (currentMode === "1" && !isTwoPointAvailable) {
+        alert("2-Point Calibration not available");
+        return;
+      }
       fetch("/toggle_calibration_mode")
         .then(response => response.text())
         .then(msg => {
-          alert(msg);
+          alert("Switched to " + msg);
         })
-        .catch(() => alert("Failed to toggle calibration mode."));
-    }
-
-    function fetchCalibrationMode() {
-      fetch("/data")
-        .then(response => response.json())
-        .then(data => {
-          document.getElementById("calibrationType").textContent = data.calibrationMode;
-        });
+        .catch(() => alert("Error"));
     }
 
     function resetCalibration() {
@@ -246,7 +307,6 @@ const char *htmlPage = R"rawliteral(
         fetch("/data")
           .then(response => response.json())
           .then(data => {
-            console.log("Fetched /data:", data);
             document.getElementById("avgOxygenVoltage").textContent = data.avgOxygenVoltage;
             document.getElementById("oxygen").textContent = data.oxygen;
             document.getElementById("mod14").textContent = data.mod14;
@@ -254,10 +314,13 @@ const char *htmlPage = R"rawliteral(
             document.getElementById("oxygenCalPercentageText").textContent = data.OxygenCalPercentage;
             document.getElementById("oxygencalVoltage").textContent = data.oxygencalVoltage;
             document.getElementById("pureoxygenVoltage").textContent = data.pureoxygenVoltage;
-            const isTwoPoint = data.pureoxygenVoltage > 0 && data.pureoxygenVoltage > data.oxygencalVoltage + 10;
-            const effectiveMode = (data.calibrationMode === "2-point" && !data.forceOnePointMode) ? "2-point" : "1-point";
-            document.getElementById("calibrationType").textContent = "Calibration: " + effectiveMode;
-            document.getElementById("bypassButtonContainer").style.display = isTwoPoint ? "block" : "none";
+            const isTwoPoint = parseFloat(data.pureoxygenVoltage) > parseFloat(data.oxygencalVoltage);
+            const currentModeIs2Point = (data.calibrationMode === "2-point" && !data.forceOnePointMode);
+            const modeText = currentModeIs2Point ? "2-Point Calibration" : "1-Point Calibration";
+            document.getElementById("toggleCalibrationBtn").textContent = modeText;
+            document.getElementById("toggleCalibrationBtn").dataset.isTwoPointAvailable = isTwoPoint;
+            document.getElementById("toggleCalibrationBtn").dataset.currentMode = currentModeIs2Point ? "2" : "1";
+            document.getElementById("gain").textContent = data.gain;
             document.getElementById("count").textContent = data.count;
           })
           .catch(error => {
@@ -266,6 +329,45 @@ const char *htmlPage = R"rawliteral(
       }, 500);
     };
   </script>
+</body>
+</html>
+)rawliteral";
+
+const char *settingsPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f4; margin:0; padding:0; }
+    .container { padding:20px; }
+    h1 { margin:0; padding:20px; background:#333; color:#fff; }
+    button { padding:10px 20px; margin:30px; font-size:20px; }
+  </style>
+</head>
+<body>
+  <h1>Setting</h1>
+  <div class="container">
+    <!-- Calibrate High % -->
+    <div>
+      <button onclick="window.location.href='/calibration_percentage'">
+        Calibrate High % 
+      </button>
+    </div>
+    <!-- PGA Gain -->
+    <div>
+      <button onclick="window.location.href='/gain'">
+        PGA Gain
+      </button>
+    </div>
+    <!-- Reset Calibration -->
+    <div>
+      <button onclick="if(confirm('Reset calibration to default?')) window.location.href='/reset_calibration';">
+        Reset Calibration
+      </button>
+    </div>
+  </div>
 </body>
 </html>
 )rawliteral";
@@ -302,8 +404,42 @@ const char *calibrationPercentagePage = R"rawliteral(
         </div>
       </form>
     </div>
-    <div class="info">
-      <a href="/">Return to Main Page</a>
+  </div>
+</body>
+</html>
+)rawliteral";
+
+const char *gainPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PGA Gain Setting</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { padding: 20px; }
+    h1 { margin: 0; padding: 20px; background-color: #333; color: white; }
+    .group { margin-top: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff; }
+    .info { font-size: 16px; margin: 10px 0; }
+    label { display: inline-block; width: 200px; text-align: right; margin-right: 10px; white-space: nowrap; }
+    input { padding: 5px; width: 40px; }
+    button { padding: 10px 20px; margin-top: 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>PGA Gain Setting</h1>
+  <div class="container">
+    <div class="group">
+      <h2>Gain Value</h2>
+      <form action="/save_gain" method="GET">
+        <div class="info">
+          <label for="gain">PGA Gain:</label>
+          <input type="number" id="gain" name="gain" min="0.1" max="99.9" step="0.1" value="13.8">
+        </div>
+        <div class="info">
+          <button type="submit">Save</button>
+        </div>
+      </form>
     </div>
   </div>
 </body>
@@ -339,29 +475,10 @@ void handleData() {
   json += "\"oxygencalVoltage\":\"" + String(oxygencalVoltage, 2) + "\",";
   json += "\"pureoxygenVoltage\":\"" + String(pureoxygenVoltage, 2) + "\",";
   json += "\"calibrationMode\":\"" + String((!forceOnePointMode && isTwoPointCalibrated) ? "2-point" : "1-point") + "\",";
+  json += "\"gain\":\"" + String(pgaGain, 1) + "\",";
   json += "\"count\":\"" + String(avgSampleCount) + "\"";
   json += "}";
   server.send(200, "application/json", json);
-}
-
-// Get Calibration Percentage from Client
-void handleCalibrationPercentage() {
-  if (server.hasArg("OxygenCalPercentage")) {
-    OxygenCalPercentage = server.arg("OxygenCalPercentage").toInt();
-    int index = EEPROM.read(0);
-    if (index < 0 || index > 4) index = 0;
-    int baseAddr = 4 + index * 12;
-    EEPROM.put(baseAddr, OxygenCalPercentage);
-    EEPROM.put(baseAddr + 4, oxygencalVoltage);
-    EEPROM.put(baseAddr + 8, pureoxygenVoltage);
-    EEPROM.write(0, (index + 1) % 5);  // Update index for next write
-    EEPROM.commit();
-    String response = "<html><body><h1>Saved!</h1><p>Device is restarting...</p></body></html>";
-    server.send(200, "text/html", response);
-    esp_restart();
-  } else {
-    server.send(400, "text/html", "<html><body><h1>Error:</h1><p>Missing parameter.</p></body></html>");
-  }
 }
 
 // Get File from Client
@@ -378,22 +495,8 @@ void handleUpload() {
   }
 }
 
-// Reset Calibration
-void handleResetCalibration() {
-  int index = EEPROM.read(0);
-  if (index < 0 || index > 4) index = 0;
-  int baseAddr = 4 + index * 12;
-  EEPROM.put(baseAddr, defaultOxygenCalPercentage);
-  EEPROM.put(baseAddr + 4, defaultOxygenCalVoltage);
-  EEPROM.put(baseAddr + 8, defaultPureOxygenVoltage);
-  EEPROM.write(0, (index + 1) % 5);  // Advance index
-  EEPROM.commit();
-  esp_restart();  // Restart after reset
-}
-
 
 void setup() {
-  setCpuFrequencyMhz(80);         // Reduce CPU frequency
   esp_bt_controller_disable();    // Turn off bluetooth
   pinMode(oxygenPin, INPUT);      // Oxygen input
   pinMode(groundPin, OUTPUT);     // LED ground
@@ -402,9 +505,14 @@ void setup() {
   digitalWrite(ledPin, LOW);
   analogReadResolution(12);       // Internal ADC 12-bit
   analogSetAttenuation(ADC_0db);  // Internal ADC 1.1V range 
-  EEPROM.begin(64);               // EEPROM start
+  EEPROM.begin(EEPROM_SIZE);      // EEPROM start
   SPIFFS.begin(true);             // Mount SPIFFS filesystem
-  server.serveStatic("/icon.png", SPIFFS, "/icon.png");
+
+  // Load PGA Gain
+  EEPROM.get(ADDR_GAIN, pgaGain);
+  if (isnan(pgaGain) || pgaGain <= 0.0f) {
+    pgaGain = defaultpgaGain;
+  }
 
   // Load Calibration Values
   int index = EEPROM.read(0);
@@ -413,8 +521,6 @@ void setup() {
   EEPROM.get(baseAddr, OxygenCalPercentage);
   EEPROM.get(baseAddr + 4, oxygencalVoltage);
   EEPROM.get(baseAddr + 8, pureoxygenVoltage);
-
-  // Default Calibration Values
   if (isnan(OxygenCalPercentage) || OxygenCalPercentage <= 0.0) {
     OxygenCalPercentage = defaultOxygenCalPercentage;
   }
@@ -435,11 +541,11 @@ void setup() {
   // Wifi
   WiFi.softAP(ssid, password, 1);  // Channel 1
   esp_wifi_set_max_tx_power(20);   // 5 dBm
+  server.serveStatic("/icon.png", SPIFFS, "/icon.png");
   server.on("/", []() {
     server.send(200, "text/html", htmlPage);
   });
   server.on("/data", handleData);
-  server.on("/save", handleCalibrationPercentage);
   server.on("/calibrate_air", []() {
     airOxygenCalibration();
     server.send(200, "text/html",
@@ -447,23 +553,34 @@ void setup() {
       "<p><a href='/'>Back to Main Page</a></p></body></html>");
   });
   server.on("/calibrate_pure", []() {
-    pureOxygenCalibration();
+    if (!pureOxygenCalibration()) {
+      server.send(400, "text/html",
+        "<html><body><h1>Calibration Failed</h1><p><a href='/'>Back to Main Page</a></p></body></html>");
+      return;
+    }
     server.send(200, "text/html",
-      "<html><body><h1>High Point Calibrated</h1>"
-      "<p><a href='/'>Back to Main Page</a></p></body></html>");
+      "<html><body><h1>High Point Calibrated</h1><p><a href='/'>Back to Main Page</a></p></body></html>");
   });
   server.on("/toggle_calibration_mode", HTTP_GET, []() {
     forceOnePointMode = !forceOnePointMode;
     String mode = forceOnePointMode ? "1-point mode" : "2-point mode";
     server.send(200, "text/plain", mode);
   });
+  server.on("/settings", []() {
+    server.send(200, "text/html", settingsPage);
+  });
   server.on("/calibration_percentage", []() {
     server.send(200, "text/html", calibrationPercentagePage);
   });
+  server.on("/save", HTTP_GET, handleCalibrationPercentage);
   server.on("/reset_calibration", HTTP_GET, handleResetCalibration);
   server.on("/upload_page", HTTP_GET, []() {
     server.send(200, "text/html", uploadPage);
   });
+  server.on("/gain", HTTP_GET, []() {
+    server.send(200, "text/html", gainPage);
+  });
+  server.on("/save_gain", HTTP_GET, handleSaveGain);
   server.on("/upload", HTTP_POST, []() {
   }, handleUpload);
   server.begin();
