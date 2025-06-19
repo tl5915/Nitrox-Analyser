@@ -45,9 +45,12 @@ UI instruction:
 
 - Click 'Cal. Low' to calibrate in air
 - Click 'Cal. High' to calibrate in oxygen/rich nitrox
-- Cal. High valid if higher than Cal. High, 2-point calibration will be available
-- Click 'Calibration %' to change gas used for 'Cal. High': default 99%, can be set lower
-- Click 'Reset' to reset to default calibration values
+- Click '1-Point Calibration' or '2-Point Calibration' to change calibration mode
+  - 2-point calibration available if Cal. High is higher than Cal. Low
+- Click 'Setting' to enter setting page
+  - Click 'Calibrate High %' to change gas used for 'Cal. High': default 99%, can be set lower
+  - Click 'PGA Gain' to change gain used for voltage calculation, measure oxygen cell voltage in air with a multimeter and adjust gain to match the readings, default 13.8 (highly dependent on resistor variability)
+  - Click 'Reset Calibration' to reset all calibration values and PGA gain to default
 - LED will blink number represent the oxygen percentage to the nearest 10%
   - i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks, etc.
   - LED stays off if O2 < 5%, LED stays on if O2 > 95%
@@ -71,4 +74,4 @@ UI instruction:
 
 ![Assembly](https://github.com/user-attachments/assets/f30ab0ac-960e-434c-9a17-6c7a5371962d)
 
-![UI](https://github.com/user-attachments/assets/9fec3368-fb29-4084-aa26-98c19376601a)
+![UI](https://github.com/user-attachments/assets/121be1cc-0cb2-4428-a0f6-33a1d3e32821)
