@@ -55,7 +55,7 @@ UI instruction:
     - only matter if accurate voltage in required, doesn't affect oxygen percentage calculation
   - Click 'Reset Calibration' to reset all calibration values and PGA gain to default
   - Click 'Firmware Update' to update firmware by uploading .bin file
-- LED will blink number represent the oxygen percentage to the nearest 10%
+- LED blink number represent the oxygen percentage to the nearest 10%
   - i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks, etc.
   - LED stays off if O2 < 5%, LED stays on if O2 > 95%
 
