@@ -49,8 +49,12 @@ UI instruction:
   - 2-point calibration available if Cal. High is higher than Cal. Low
 - Click 'Setting' to enter setting page
   - Click 'Calibrate High %' to change gas used for 'Cal. High': default 99%, can be set lower
-  - Click 'PGA Gain' to change gain used for voltage calculation, measure oxygen cell voltage in air with a multimeter and adjust gain to match the readings, default 13.8 (highly dependent on resistor variability)
+  - Click 'PGA Gain' to change gain used for voltage calculation:
+    - measure oxygen cell voltage in air with a multimeter and adjust gain to match the readings
+    - default 13.8 (highly dependent on resistor variability)
+    - only matter if accurate voltage in required, doesn't affect oxygen percentage calculation
   - Click 'Reset Calibration' to reset all calibration values and PGA gain to default
+  - Click 'Firmware Update' to update firmware by uploading .bin file
 - LED will blink number represent the oxygen percentage to the nearest 10%
   - i.e. 21% 2 blinks, 36% 4 blinks, 80% 8 blinks, etc.
   - LED stays off if O2 < 5%, LED stays on if O2 > 95%
