@@ -1,3 +1,4 @@
+#include <Update.h>
 #include <FS.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
@@ -11,6 +12,11 @@ File fsUploadFile;
 WebServer server(80);  // Web server on port 80
 SimpleKalmanFilter oxygenKalman(0.02, 1.0, 0.001);  // R: measurement error, P: estimated error, Q: process noise
 
+// Firmware
+#define FIRMWARE_VERSION 1.2.0
+#define STRINGIFY(x) #x
+#define TOSTRING(x)  STRINGIFY(x)
+
 // Pin Definition
 const uint8_t oxygenPin = A2;  // GPIO 4
 const uint8_t groundPin = D6;  // GPIO 21
@@ -20,7 +26,7 @@ const uint8_t ledPin = D7;     // GPIO 20
 const uint8_t defaultOxygenCalPercentage = 99;  // Oxygen calibration percentage
 const float defaultOxygenCalVoltage = 9.0;      // Oxygen voltage in air
 const float defaultPureOxygenVoltage = 0.0;     // Oxygen voltage in oxygen
-const float defaultpgaGain = 13.8f;             // Measured PGA gain 
+const float defaultpgaGain = 13.8;              // Measured PGA gain 
 bool isTwoPointCalibrated = false;
 bool forceOnePointMode = false;
 uint8_t OxygenCalPercentage = defaultOxygenCalPercentage; 
@@ -29,10 +35,10 @@ float pureoxygenVoltage = defaultPureOxygenVoltage;
 float pgaGain = defaultpgaGain;
 
 // EEPROM Addresses
-const int EEPROM_SIZE = 128;
-const int ADDR_INDEX = 0;
-const int ADDR_CALIB_START = 4;
-const int ADDR_GAIN = 64;
+const int ADDR_OXYGEN_CAL_PERCENT = 0;
+const int ADDR_OXYGEN_CAL_VOLTAGE = 4;
+const int ADDR_PURE_OXYGEN_VOLTAGE = 8;
+const int ADDR_GAIN = 12;
 
 // Sampling
 const uint8_t samplingRateHz = 240;  // Sampling rate 240 Hz
@@ -69,31 +75,17 @@ const char *password = "12345678";     // WiFi password
 // 21% Oxygen Calibration
 void airOxygenCalibration() {
   oxygencalVoltage = filteredOxygenVoltage;
-  int index = EEPROM.read(0);
-  if (index < 0 || index > 4) index = 0;
-  int baseAddr = 4 + index * 12;
-  EEPROM.put(baseAddr, OxygenCalPercentage);
-  EEPROM.put(baseAddr + 4, oxygencalVoltage);
-  EEPROM.put(baseAddr + 8, pureoxygenVoltage);
-  EEPROM.write(0, (index + 1) % 5);
+  EEPROM.put(ADDR_OXYGEN_CAL_VOLTAGE, oxygencalVoltage);
   EEPROM.commit();
 }
 
 // 100% Oxygen Calibration
 bool pureOxygenCalibration() {
   float newPureVoltage = filteredOxygenVoltage;
-  if (newPureVoltage <= oxygencalVoltage) {
-    return false;
-  }
+  if (newPureVoltage <= oxygencalVoltage) return false;
   pureoxygenVoltage = newPureVoltage;
   isTwoPointCalibrated = true;
-  int index = EEPROM.read(0);
-  if (index < 0 || index > 4) index = 0;
-  int baseAddr = 4 + index * 12;
-  EEPROM.put(baseAddr, OxygenCalPercentage);
-  EEPROM.put(baseAddr + 4, oxygencalVoltage);
-  EEPROM.put(baseAddr + 8, pureoxygenVoltage);
-  EEPROM.write(0, (index + 1) % 5);
+  EEPROM.put(ADDR_PURE_OXYGEN_VOLTAGE, pureoxygenVoltage);
   EEPROM.commit();
   return true;
 }
@@ -102,13 +94,7 @@ bool pureOxygenCalibration() {
 void handleCalibrationPercentage() {
   if (server.hasArg("OxygenCalPercentage")) {
     OxygenCalPercentage = server.arg("OxygenCalPercentage").toInt();
-    int index = EEPROM.read(0);
-    if (index < 0 || index > 4) index = 0;
-    int baseAddr = 4 + index * 12;
-    EEPROM.put(baseAddr, OxygenCalPercentage);
-    EEPROM.put(baseAddr + 4, oxygencalVoltage);
-    EEPROM.put(baseAddr + 8, pureoxygenVoltage);
-    EEPROM.write(0, (index + 1) % 5);
+    EEPROM.put(ADDR_OXYGEN_CAL_PERCENT, OxygenCalPercentage);
     EEPROM.commit();
     String response = "<html><body><h1>Saved!</h1><p>Device is restarting...</p></body></html>";
     server.send(200, "text/html", response);
@@ -138,14 +124,10 @@ void handleSaveGain() {
 
 // Reset Calibration
 void handleResetCalibration() {
-  int index = EEPROM.read(0);
-  if (index < 0 || index > 4) index = 0;
-  int baseAddr = 4 + index * 12;
-  EEPROM.put(baseAddr, defaultOxygenCalPercentage);
-  EEPROM.put(baseAddr + 4, defaultOxygenCalVoltage);
-  EEPROM.put(baseAddr + 8, defaultPureOxygenVoltage);
+  EEPROM.put(ADDR_OXYGEN_CAL_PERCENT, defaultOxygenCalPercentage);
+  EEPROM.put(ADDR_OXYGEN_CAL_VOLTAGE, defaultOxygenCalVoltage);
+  EEPROM.put(ADDR_PURE_OXYGEN_VOLTAGE, defaultPureOxygenVoltage);
   EEPROM.put(ADDR_GAIN, defaultpgaGain);
-  EEPROM.write(0, (index + 1) % 5);
   EEPROM.commit();
   esp_restart();
 }
@@ -367,6 +349,12 @@ const char *settingsPage = R"rawliteral(
         Reset Calibration
       </button>
     </div>
+    <!-- Firmware Update -->
+    <div>
+      <button onclick="window.location.href='/firmware'">
+        Firmware Update
+      </button>
+    </div>
   </div>
 </body>
 </html>
@@ -455,11 +443,121 @@ const char *uploadPage = R"rawliteral(
 </head>
 <body>
   <h1>Upload Icon</h1>
-  <form method="POST" action="/upload" enctype="multipart/form-data">
-    <input type="file" name="upload">
+  <form id="iconForm" method="POST" action="/upload" enctype="multipart/form-data" onsubmit="return checkIcon();">
+    <label for="iconInput">Choose a PNG (max 20KB):</label><br>
+    <input type="file" name="upload" id="iconInput" accept=".png" required><br>
+    <div id="iconStatus" class="info"></div>
     <input type="submit" value="Upload">
   </form>
+  <p><a href="/">Return</a></p>
+
+  <script>
+    const iconInput = document.getElementById('iconInput');
+    const iconStatus = document.getElementById('iconStatus');
+    iconInput.addEventListener('change', () => {
+      const file = iconInput.files[0];
+      if (file) {
+        const sizeKB = (file.size / 1024).toFixed(1);
+        iconStatus.textContent = `Selected: ${file.name} (${sizeKB} KB)`;
+      } else {
+        iconStatus.textContent = '';
+      }
+    });
+    function checkIcon() {
+      const file = iconInput.files[0];
+      if (!file) {
+        alert('Please select a file.');
+        return false;
+      }
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!file.name.toLowerCase().endsWith('.png')) {
+        alert('Invalid file type.');
+        return false;
+      }
+      if (file.size > 20 * 1024) {
+        alert('File size over 20 kB.');
+        return false;
+      }
+      return true;
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+const char *firmwarePage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Firmware OTA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    .progress-bar { width: 100%; background-color: #ddd; border-radius: 5px; overflow: hidden; margin-top: 10px; }
+    .progress { height: 20px; width: 0%; background-color: #4caf50; transition: width 0.4s; }
+  </style>
+</head>
+<body>
+  <h1>Firmware Update</h1>
+  <p style="font-size:16px; margin-bottom:12px;">
+    Current version: )rawliteral" TOSTRING(FIRMWARE_VERSION) R"rawliteral(
+  </p>
+  <form id="uploadForm" method="POST" action="/update" enctype="multipart/form-data" onsubmit="return checkFile();">
+    <input type="file" name="firmware" id="fileInput" accept=".bin" required>
+    <div class="progress-bar"><div class="progress" id="progress"></div></div>
+    <input type="submit" value="Upload">
+    <p id="uploadStatus"></p>
+  </form>
   <p><a href="/">Back</a></p>
+
+  <script>
+    document.getElementById("fileInput").addEventListener("change", function() {
+      let fileName = this.files[0]?.name || "No file selected";
+      document.getElementById("uploadStatus").textContent = "Selected: " + fileName;
+    });
+    function checkFile() {
+      let fileInput = document.getElementById("fileInput");
+      let file = fileInput.files[0];
+      if (!file) {
+        alert("Select a bin file.");
+        return false;
+      }
+      if (file.name.split('.').pop().toLowerCase() !== "bin") {
+        alert("Invalid file type.");
+        return false;
+      }
+      if (file.size > 1800000) {
+        alert("File size exceeded 1.8 MB.");
+        return false;
+      }
+      uploadFirmware(file);
+      return false;
+    }
+    function uploadFirmware(file) {
+      let xhr = new XMLHttpRequest();
+      let formData = new FormData();
+      formData.append("firmware", file);
+
+      xhr.upload.onprogress = function(event) {
+        let percent = Math.round((event.loaded / event.total) * 100);
+        document.getElementById("progress").style.width = percent + "%";
+        document.getElementById("uploadStatus").textContent = "Uploading... " + percent + "%";
+      };
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          document.getElementById("uploadStatus").textContent = "Upload complete. Device rebooting...";
+        } else if (xhr.status === 413) {
+          document.getElementById("uploadStatus").textContent = "File too large! Upload failed.";
+        } else {
+          document.getElementById("uploadStatus").textContent = "Upload failed!";
+        }
+      };
+      xhr.onerror = function() {
+        document.getElementById("uploadStatus").textContent = "Upload error!";
+      };
+      xhr.open("POST", "/update", true);
+      xhr.send(formData);
+    }
+  </script> 
 </body>
 </html>
 )rawliteral";
@@ -491,8 +589,51 @@ void handleUpload() {
     if (fsUploadFile) fsUploadFile.write(upload.buf, upload.currentSize);
   } else if (upload.status == UPLOAD_FILE_END) {
     if (fsUploadFile) fsUploadFile.close();
-    server.send(200, "text/plain", "Upload complete");
   }
+}
+
+// Firmware Update
+void handleOTAUpload() {
+  HTTPUpload& upload = server.upload();
+  switch (upload.status) {
+    case UPLOAD_FILE_START:
+      Serial.printf("OTA: Begin %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+        Update.printError(Serial);
+      }
+      break;
+    case UPLOAD_FILE_WRITE:
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+      break;
+    case UPLOAD_FILE_END:
+      if (Update.end(true)) {  // true = reboot when done
+        Serial.printf("OTA: Success, %u bytes\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+void handleOTAFinish() {
+  server.sendHeader("Connection", "close");
+  if (Update.hasError()) {
+    server.send(200, "text/plain", "FAIL");
+  } else {
+    server.send(200, "text/plain", "OK");
+  }
+  delay(100);
+  ESP.restart();
+}
+
+void updateFinished() {
+    server.send(200, "text/plain", Update.hasError() ? "Update Failed" : "Update Successful. Rebooting...");
+    delay(100);
+    ESP.restart();
 }
 
 
@@ -505,22 +646,14 @@ void setup() {
   digitalWrite(ledPin, LOW);
   analogReadResolution(12);       // Internal ADC 12-bit
   analogSetAttenuation(ADC_0db);  // Internal ADC 1.1V range 
-  EEPROM.begin(EEPROM_SIZE);      // EEPROM start
+  EEPROM.begin(32);               // EEPROM start
   SPIFFS.begin(true);             // Mount SPIFFS filesystem
 
-  // Load PGA Gain
+  // Load EEPROM
+  EEPROM.get(ADDR_OXYGEN_CAL_PERCENT, OxygenCalPercentage);
+  EEPROM.get(ADDR_OXYGEN_CAL_VOLTAGE, oxygencalVoltage);
+  EEPROM.get(ADDR_PURE_OXYGEN_VOLTAGE, pureoxygenVoltage);
   EEPROM.get(ADDR_GAIN, pgaGain);
-  if (isnan(pgaGain) || pgaGain <= 0.0f) {
-    pgaGain = defaultpgaGain;
-  }
-
-  // Load Calibration Values
-  int index = EEPROM.read(0);
-  if (index < 0 || index > 4) index = 0;
-  int baseAddr = 4 + ((index + 4) % 5) * 12;
-  EEPROM.get(baseAddr, OxygenCalPercentage);
-  EEPROM.get(baseAddr + 4, oxygencalVoltage);
-  EEPROM.get(baseAddr + 8, pureoxygenVoltage);
   if (isnan(OxygenCalPercentage) || OxygenCalPercentage <= 0.0) {
     OxygenCalPercentage = defaultOxygenCalPercentage;
   }
@@ -529,6 +662,9 @@ void setup() {
   }
   if (isnan(pureoxygenVoltage) || pureoxygenVoltage <= 0.0) {
     pureoxygenVoltage = defaultPureOxygenVoltage;
+  }
+  if (isnan(pgaGain) || pgaGain <= 0.0) {
+    pgaGain = defaultpgaGain;
   }
 
   // Two-point Calibration
@@ -577,12 +713,25 @@ void setup() {
   server.on("/upload_page", HTTP_GET, []() {
     server.send(200, "text/html", uploadPage);
   });
+  server.on("/upload", HTTP_POST,
+    []() {
+      server.send(200, "text/html",
+        "<html><body>"
+          "<h1>Upload Successful</h1>"
+          "<p><a href=\"/settings\">Back to Settings</a></p>"
+        "</body></html>"
+      );
+    },
+    handleUpload
+  );
   server.on("/gain", HTTP_GET, []() {
     server.send(200, "text/html", gainPage);
   });
   server.on("/save_gain", HTTP_GET, handleSaveGain);
-  server.on("/upload", HTTP_POST, []() {
-  }, handleUpload);
+  server.on("/firmware", HTTP_GET, []() {
+    server.send(200, "text/html", firmwarePage);
+  });
+  server.on("/update", HTTP_POST, handleOTAFinish, handleOTAUpload);
   server.begin();
   server.handleClient();
 }
