@@ -8,14 +8,14 @@
 #include <WebServer.h>
 #include <SimpleKalmanFilter.h>
 
+// Firmware Version
+#define FIRMWARE_VERSION 1.2.1
+#define STRINGIFY(x) #x
+#define TOSTRING(x)  STRINGIFY(x)
+
 File fsUploadFile;
 WebServer server(80);  // Web server on port 80
 SimpleKalmanFilter oxygenKalman(0.02, 1.0, 0.001);  // R: measurement error, P: estimated error, Q: process noise
-
-// Firmware
-#define FIRMWARE_VERSION 1.2.0
-#define STRINGIFY(x) #x
-#define TOSTRING(x)  STRINGIFY(x)
 
 // Pin Definition
 const uint8_t oxygenPin = A2;  // GPIO 4
@@ -26,19 +26,19 @@ const uint8_t ledPin = D7;     // GPIO 20
 const uint8_t defaultOxygenCalPercentage = 99;  // Oxygen calibration percentage
 const float defaultOxygenCalVoltage = 9.0;      // Oxygen voltage in air
 const float defaultPureOxygenVoltage = 0.0;     // Oxygen voltage in oxygen
-const float defaultpgaGain = 13.8;              // Measured PGA gain 
-bool isTwoPointCalibrated = false;
-bool forceOnePointMode = false;
+const float defaultpgaGain = 13.8;              // PGA gain 
 uint8_t OxygenCalPercentage = defaultOxygenCalPercentage; 
 float oxygencalVoltage = defaultOxygenCalVoltage;
 float pureoxygenVoltage = defaultPureOxygenVoltage;
 float pgaGain = defaultpgaGain;
+bool isTwoPointCalibrated = false;              // Two-point calibration
+bool forceOnePointMode = false;                 // Overide two-point calibration
 
 // EEPROM Addresses
-const int ADDR_OXYGEN_CAL_PERCENT = 0;
-const int ADDR_OXYGEN_CAL_VOLTAGE = 4;
-const int ADDR_PURE_OXYGEN_VOLTAGE = 8;
-const int ADDR_GAIN = 12;
+const int ADDR_OXYGEN_CAL_PERCENT = 0;   // uint8_t
+const int ADDR_OXYGEN_CAL_VOLTAGE = 4;   // float
+const int ADDR_PURE_OXYGEN_VOLTAGE = 8;  // float
+const int ADDR_GAIN = 12;                // float
 
 // Sampling
 const uint8_t samplingRateHz = 240;  // Sampling rate 240 Hz
@@ -82,7 +82,7 @@ void airOxygenCalibration() {
 // 100% Oxygen Calibration
 bool pureOxygenCalibration() {
   float newPureVoltage = filteredOxygenVoltage;
-  if (newPureVoltage <= oxygencalVoltage) return false;
+  if (newPureVoltage <= oxygencalVoltage) return false;  // must be higher than 21% calibration
   pureoxygenVoltage = newPureVoltage;
   isTwoPointCalibrated = true;
   EEPROM.put(ADDR_PURE_OXYGEN_VOLTAGE, pureoxygenVoltage);
@@ -96,7 +96,7 @@ void handleCalibrationPercentage() {
     OxygenCalPercentage = server.arg("OxygenCalPercentage").toInt();
     EEPROM.put(ADDR_OXYGEN_CAL_PERCENT, OxygenCalPercentage);
     EEPROM.commit();
-    String response = "<html><body><h1>Saved!</h1><p>Device is restarting...</p></body></html>";
+    String response = "<html><body><h1>Saved!</h1><p>Rebooting</p></body></html>";
     server.send(200, "text/html", response);
     esp_restart();
   } else {
@@ -132,21 +132,16 @@ void handleResetCalibration() {
   esp_restart();
 }
 
-// Read Oxygen Voltage
-float getOxygenVoltage() {
-  return analogReadMilliVolts(oxygenPin) / pgaGain;
-}
-
 // Oxygen Percentage Calculation
 float getOxygenPercentage() {
-  bool isTwoPoint = (!forceOnePointMode && isTwoPointCalibrated);  // Forced one-point calibration
+  bool isTwoPoint = (!forceOnePointMode && isTwoPointCalibrated);  // Overide two-point calibration
   if (!isTwoPoint) {
     return (avgOxygenVoltage / oxygencalVoltage) * 20.9;  // One-point calibration
   }
   return 20.9 + ((avgOxygenVoltage - oxygencalVoltage) / (pureoxygenVoltage - oxygencalVoltage)) * (OxygenCalPercentage - 20.9);  // Two-point calibration
 }
 
-// HTML
+// HTML Main Page
 const char *htmlPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -175,7 +170,6 @@ const char *htmlPage = R"rawliteral(
       <div style="margin-top: 20px; font-size: 20px;">
         <span id="avgOxygenVoltage">0.0</span> mV
       </div>
-
     <!-- MOD -->
       <h2 style="margin-top: 30px;">MOD</h2>
       <div style="display: flex; justify-content: space-around; text-align: center; margin-top: 5px; font-size: 20px;">
@@ -188,7 +182,6 @@ const char *htmlPage = R"rawliteral(
           <div><span id="mod16">0</span> m</div>
         </div>
       </div>
-
     <!-- Calibration -->
       <h2 style="margin-top: 30px;">Calibration</h2>
       <div style="display: flex; justify-content: space-around; text-align: center; margin-top: 5px; font-size: 20px;">
@@ -201,13 +194,11 @@ const char *htmlPage = R"rawliteral(
           <div><span id="pureoxygenVoltage">0.0</span> mV</div>
         </div>
       </div>
-
     <!-- Calibration Buttons -->
       <div style="margin-top: 5px; display: flex; justify-content: center; gap: 60px; flex-wrap: wrap;">
         <button onclick="calibrate('air')">Cal. Low</button>
         <button onclick="calibrate('pure')">Cal. High</button>
       </div>
-
     <!-- Calibration Status -->
       <div id="calibrationStatus" style="margin-top: 20px; font-size: 18px; color: green;"></div>
       <div id="bypassButtonContainer" style="margin-top: 10px;">
@@ -215,22 +206,19 @@ const char *htmlPage = R"rawliteral(
           1-Point Calibration
         </button>
       </div>
-
      <!-- Settings -->
       <div style="margin-top: 30px; text-align: center;">
         <button style="font-size: 18px; padding: 4px 10px;" onclick="window.location.href='/settings'">
           Setting
         </button>
       </div>
-
-    <!-- System -->
+    <!-- System Info -->
     <div style="font-size: 16px; margin-top: 20px;">
       Oversampling: <span id="count">0</span>
     </div>
     <div style="font-size: 16px; margin-top: 5px;">
       Gain: <span id="gain">0.0</span>
     </div>
-
     <!-- Refresh Button -->
     <div style="margin-top: 20px; text-align: center;">
       <button style="font-size: 20px; padding: 4px 10px;" onclick="location.reload();">
@@ -258,7 +246,6 @@ const char *htmlPage = R"rawliteral(
             type === 'pure' ? "failed: voltage too low" : "Error";
         });
     }
-
     function toggleCalibrationMode() {
       const btn = document.getElementById("toggleCalibrationBtn");
       const isTwoPointAvailable = btn.dataset.isTwoPointAvailable === "true";
@@ -274,7 +261,6 @@ const char *htmlPage = R"rawliteral(
         })
         .catch(() => alert("Error"));
     }
-
     function resetCalibration() {
       if (confirm("Reset calibration to default?")) {
         fetch("/reset_calibration")
@@ -283,7 +269,6 @@ const char *htmlPage = R"rawliteral(
           })
       }
     }
-
     window.onload = function() {
       setInterval(() => {
         fetch("/data")
@@ -315,6 +300,8 @@ const char *htmlPage = R"rawliteral(
 </html>
 )rawliteral";
 
+
+// HTML Setting Page
 const char *settingsPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -360,6 +347,7 @@ const char *settingsPage = R"rawliteral(
 </html>
 )rawliteral";
 
+// HTML Calibration Percentage Setting Page
 const char *calibrationPercentagePage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -397,6 +385,7 @@ const char *calibrationPercentagePage = R"rawliteral(
 </html>
 )rawliteral";
 
+// HTML PGA Gain Setting Page
 const char *gainPage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -434,57 +423,7 @@ const char *gainPage = R"rawliteral(
 </html>
 )rawliteral";
 
-const char *uploadPage = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Upload Icon</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body>
-  <h1>Upload Icon</h1>
-  <form id="iconForm" method="POST" action="/upload" enctype="multipart/form-data" onsubmit="return checkIcon();">
-    <label for="iconInput">Choose a PNG (max 20KB):</label><br>
-    <input type="file" name="upload" id="iconInput" accept=".png" required><br>
-    <div id="iconStatus" class="info"></div>
-    <input type="submit" value="Upload">
-  </form>
-  <p><a href="/">Return</a></p>
-
-  <script>
-    const iconInput = document.getElementById('iconInput');
-    const iconStatus = document.getElementById('iconStatus');
-    iconInput.addEventListener('change', () => {
-      const file = iconInput.files[0];
-      if (file) {
-        const sizeKB = (file.size / 1024).toFixed(1);
-        iconStatus.textContent = `Selected: ${file.name} (${sizeKB} KB)`;
-      } else {
-        iconStatus.textContent = '';
-      }
-    });
-    function checkIcon() {
-      const file = iconInput.files[0];
-      if (!file) {
-        alert('Please select a file.');
-        return false;
-      }
-      const ext = file.name.split('.').pop().toLowerCase();
-      if (!file.name.toLowerCase().endsWith('.png')) {
-        alert('Invalid file type.');
-        return false;
-      }
-      if (file.size > 20 * 1024) {
-        alert('File size over 20 kB.');
-        return false;
-      }
-      return true;
-    }
-  </script>
-</body>
-</html>
-)rawliteral";
-
+// HTML Firmware Update Page
 const char *firmwarePage = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -562,7 +501,59 @@ const char *firmwarePage = R"rawliteral(
 </html>
 )rawliteral";
 
-// Send Data to Client
+// HTML App Icon Upload Page (no link in UI, must manual input URL)
+const char *uploadPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upload Icon</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+  <h1>Upload Icon</h1>
+  <form id="iconForm" method="POST" action="/upload" enctype="multipart/form-data" onsubmit="return checkIcon();">
+    <label for="iconInput">Choose a PNG (max 20KB):</label><br>
+    <input type="file" name="upload" id="iconInput" accept=".png" required><br>
+    <div id="iconStatus" class="info"></div>
+    <input type="submit" value="Upload">
+  </form>
+  <p><a href="/">Return</a></p>
+
+  <script>
+    const iconInput = document.getElementById('iconInput');
+    const iconStatus = document.getElementById('iconStatus');
+    iconInput.addEventListener('change', () => {
+      const file = iconInput.files[0];
+      if (file) {
+        const sizeKB = (file.size / 1024).toFixed(1);
+        iconStatus.textContent = `Selected: ${file.name} (${sizeKB} KB)`;
+      } else {
+        iconStatus.textContent = '';
+      }
+    });
+    function checkIcon() {
+      const file = iconInput.files[0];
+      if (!file) {
+        alert('Please select a file.');
+        return false;
+      }
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (!file.name.toLowerCase().endsWith('.png')) {
+        alert('Invalid file type.');
+        return false;
+      }
+      if (file.size > 20 * 1024) {
+        alert('File size over 20 kB.');
+        return false;
+      }
+      return true;
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// Send Data
 void handleData() {
   String json = "{";
   json += "\"avgOxygenVoltage\":\"" + String(avgOxygenVoltage, 2) + "\",";
@@ -577,19 +568,6 @@ void handleData() {
   json += "\"count\":\"" + String(avgSampleCount) + "\"";
   json += "}";
   server.send(200, "application/json", json);
-}
-
-// Get File from Client
-void handleUpload() {
-  HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START) {
-    String filename = "/" + upload.filename;
-    fsUploadFile = SPIFFS.open(filename, FILE_WRITE);
-  } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (fsUploadFile) fsUploadFile.write(upload.buf, upload.currentSize);
-  } else if (upload.status == UPLOAD_FILE_END) {
-    if (fsUploadFile) fsUploadFile.close();
-  }
 }
 
 // Firmware Update
@@ -622,38 +600,47 @@ void handleOTAUpload() {
 void handleOTAFinish() {
   server.sendHeader("Connection", "close");
   if (Update.hasError()) {
-    server.send(200, "text/plain", "FAIL");
+    server.send(200, "text/plain", "Update Failed");
   } else {
-    server.send(200, "text/plain", "OK");
+    server.send(200, "text/plain", "Update Successful. Rebooting...");
   }
   delay(100);
   ESP.restart();
 }
 
-void updateFinished() {
-    server.send(200, "text/plain", Update.hasError() ? "Update Failed" : "Update Successful. Rebooting...");
-    delay(100);
-    ESP.restart();
+// Get Icon File
+void handleUpload() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    String filename = "/" + upload.filename;
+    fsUploadFile = SPIFFS.open(filename, FILE_WRITE);
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (fsUploadFile) fsUploadFile.write(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (fsUploadFile) fsUploadFile.close();
+  }
 }
 
 
 void setup() {
   esp_bt_controller_disable();    // Turn off bluetooth
   pinMode(oxygenPin, INPUT);      // Oxygen input
-  pinMode(groundPin, OUTPUT);     // LED ground
-  digitalWrite(groundPin, LOW);
+  pinMode(groundPin, OUTPUT);     // Ground for LED
+  digitalWrite(groundPin, LOW);   // Digital low
   pinMode(ledPin, OUTPUT);        // LED pin
-  digitalWrite(ledPin, LOW);
-  analogReadResolution(12);       // Internal ADC 12-bit
-  analogSetAttenuation(ADC_0db);  // Internal ADC 1.1V range 
+  digitalWrite(ledPin, LOW);      // LED off
+  analogReadResolution(12);       // ADC 12-bit
+  analogSetAttenuation(ADC_0db);  // ADC 1.1V range 
   EEPROM.begin(32);               // EEPROM start
-  SPIFFS.begin(true);             // Mount SPIFFS filesystem
+  SPIFFS.begin(true);             // SPIFFS filesystem start
 
   // Load EEPROM
   EEPROM.get(ADDR_OXYGEN_CAL_PERCENT, OxygenCalPercentage);
   EEPROM.get(ADDR_OXYGEN_CAL_VOLTAGE, oxygencalVoltage);
   EEPROM.get(ADDR_PURE_OXYGEN_VOLTAGE, pureoxygenVoltage);
   EEPROM.get(ADDR_GAIN, pgaGain);
+
+  // Set to Default Values at First Initiation
   if (isnan(OxygenCalPercentage) || OxygenCalPercentage <= 0.0) {
     OxygenCalPercentage = defaultOxygenCalPercentage;
   }
@@ -675,8 +662,10 @@ void setup() {
   }
 
   // Wifi
-  WiFi.softAP(ssid, password, 1);  // Channel 1
-  esp_wifi_set_max_tx_power(20);   // 5 dBm
+  WiFi.softAP(ssid, password, 1);  // WiFi channel 1
+  esp_wifi_set_max_tx_power(40);   // WiFi AP power 10 dBm
+
+  // HTML Server
   server.serveStatic("/icon.png", SPIFFS, "/icon.png");
   server.on("/", []() {
     server.send(200, "text/html", htmlPage);
@@ -746,12 +735,12 @@ void loop() {
   // Sampling
   if (currentTime - lastSampleTime >= (1000 / samplingRateHz)) {
     lastSampleTime = currentTime;
-    oxygenVoltage = getOxygenVoltage();
+    oxygenVoltage = analogReadMilliVolts(oxygenPin) / pgaGain;           // Gain corrected oxygen voltage
     filteredOxygenVoltage = oxygenKalman.updateEstimate(oxygenVoltage);  // Kalman filter
     sampleCount++;
   }
 
-  // Refresh
+  // HTML Refresh
   if (currentTime - lastDisplayUpdate >= (1000 / displayRateHz)) {
     lastDisplayUpdate = currentTime;
 
@@ -762,24 +751,24 @@ void loop() {
 
     // Calculate oxygen percentage
     oxygenPercentage = getOxygenPercentage();
-    if (oxygenPercentage < 0.0) oxygenPercentage = 0.0;  // Minimum oxygen percentage 0%
+    if (oxygenPercentage < 0.0) oxygenPercentage = 0.0;  // Minimum 0%
 
     // Calculate MOD
     mod14 = (oxygenPercentage > 0) ? (int)((1400.0 / oxygenPercentage) - 10.0) : 0;  // ppO2 1.4
-    if (mod14 > 999) mod14 = 999;  // Maximum MOD 999 m
+    if (mod14 > 999) mod14 = 999;                                                    // Maximum 999 m
     mod16 = (oxygenPercentage > 0) ? (int)((1600.0 / oxygenPercentage) - 10.0) : 0;  // ppO2 1.6
-    if (mod16 > 999) mod16 = 999;  // Maximum MOD 999 m
+    if (mod16 > 999) mod16 = 999;                                                    // Maximum 999 m
 
     // LED reset
-    bool newConstantOn = (oxygenPercentage >= 95.0f);
+    bool newConstantOn = (oxygenPercentage >= 95.0);  // LED constant on when O2 > 95%
     uint8_t newBlinkTotal;
-    if (newConstantOn || oxygenPercentage < 5.0f) {
-      newBlinkTotal = 0;
+    if (newConstantOn || oxygenPercentage < 5.0) {
+      newBlinkTotal = 0;                              // LED constant off when O2 < 5%
     }
     else {
-      float pct = oxygenPercentage - 5.0f;
-      uint8_t bucket = (uint8_t)(pct / 10.0f);
-      newBlinkTotal = bucket + 1;
+      float pct = oxygenPercentage - 5.0;             // Closest 10%
+      uint8_t bucket = (uint8_t)(pct / 10.0);
+      newBlinkTotal = bucket + 1;                     // Number of blinks
     }
     if (newConstantOn != prevConstantOn || newBlinkTotal != prevBlinkTotal) {
       constantOn = newConstantOn;
