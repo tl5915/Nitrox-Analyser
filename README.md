@@ -1,3 +1,5 @@
+This is the old version (analog), for new version (digital): https://github.com/tl5915/Nitrox
+
 # Nitrox-Analyser
 Nitrox Analyser (Divesoft DNA clone)
 
