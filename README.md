@@ -3,7 +3,7 @@ This is the old version (analog), for new version (digital): https://github.com/
 # Nitrox-Analyser
 Nitrox Analyser (Divesoft DNA clone)
 
-Material required:
+## Material
 - 50mL Syringe
   - cut the tip off and drill to 16mm, trim to approriate length (around 63mm)
   - keep the silicone plug on the plunger, cut holes for USB-C as end plug, drill hole for lanyard
@@ -22,8 +22,7 @@ Material required:
 - JST-XH (2.54mm) 3-Pin Female Connector 
   - cut the locking arrows off to fit Molex header on oxygen cell
 
-
-Circuit connection:
+## Circuit connection
 - LM358P pin 8 (Vcc) connects to Xiao 3V3 pin
 - LM358P pin 4 (Gnd) connects to Xiao Gnd pin and Oxygen Cell pin 1 (-)
 - LM358P pin 3 (IN1+) connects to Oxygen Cell pin 3 (+)
@@ -36,8 +35,7 @@ Circuit connection:
 - LED short leg (-) connects to Xiao pin D6
 - Connect the antenna for Xiao, antenna can be sticked on the back of circuit board
 
-
-UI instruction:
+## UI instruction
 - Power with USB-C cable
 - Connects to 'Nitrox Analyser' WiFi, password: 12345678
 - Browser open URL: 192.168.4.1/upload_page
